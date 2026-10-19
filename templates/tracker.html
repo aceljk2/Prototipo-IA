@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Monitor VSM en vivo - PeerFlow AI</title>
+<link rel="icon" href="data:,">
+<script src="{{ url_for('static', filename='theme.js') }}"></script>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<a class="skip-link" href="#contenido">Saltar al contenido</a>
+<header class="site-header">
+  <a class="brand" href="/">PeerFlow AI</a>
+  <nav class="site-nav" aria-label="Principal">
+    <a href="/">Enviar manuscrito</a>
+    <a href="/tracker" aria-current="page">Monitor VSM en vivo</a>
+    <button type="button" class="theme-btn" id="theme-toggle" aria-pressed="false"><span class="dot" aria-hidden="true"></span>Modo oscuro</button>
+  </nav>
+</header>
+
+<main id="contenido">
+  <h1>Monitor VSM en vivo</h1>
+
+
+  <div class="toolbar">
+    <button type="button" class="btn secondary" id="toggle">Pausar actualización automática</button>
+    <span class="small muted" id="status">Cargando...</span>
+  </div>
+
+  <h2 id="h-kpis">Métricas clave</h2>
+  <dl class="kpis" id="kpis" aria-labelledby="h-kpis"></dl>
+
+  <h2 id="h-ahorro">Tiempo ahorrado</h2>
+  <section class="card savings" aria-labelledby="h-ahorro">
+    <div class="savings-hero">
+      <span class="big" id="saved-big">0 s</span>
+      <span id="saved-text" class="muted">Aún no hay documentos procesados.</span>
+    </div>
+    <p class="small muted">Ahorro = (tiempo manual &minus; tiempo automatizado) &times; documentos procesados. El tiempo automatizado solo mide lo que ocurre dentro de la app; no incluye el envío del correo por Zapier.</p>
+
+    <div class="alert warn" id="example-note" role="note" hidden>
+      Estos tiempos manuales son valores de ejemplo. Cronometra tu proceso manual en 3 o 4 manuscritos de prueba, escribe el promedio de cada etapa y guarda.
+    </div>
+
+    <form id="baseline-form" novalidate>
+      <div class="table-wrap" role="region" aria-label="Tiempos manuales por etapa" tabindex="0">
+        <table>
+          <caption>Minutos que tomaría hacer cada etapa a mano, por documento</caption>
+          <thead>
+            <tr>
+              <th scope="col">Etapa</th>
+              <th scope="col" class="num">Manual (min)</th>
+              <th scope="col" class="num">Automatizado (promedio)</th>
+              <th scope="col" class="num">Ahorro por documento</th>
+            </tr>
+          </thead>
+          <tbody id="baseline-rows"></tbody>
+          <tfoot>
+            <tr>
+              <th scope="row">Total por documento</th>
+              <td class="num" id="manual-total">0</td>
+              <td class="num" id="auto-total">0</td>
+              <td class="num" id="save-total">0</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <p style="margin:16px 0 0; display:flex; flex-wrap:wrap; gap:12px; align-items:center">
+        <button type="submit" class="btn" id="save">Guardar tiempos manuales</button>
+        <span id="save-status" role="status" class="small"></span>
+      </p>
+    </form>
+  </section>
+
+  <h2 id="h-flujo">Flujo de valor</h2>
+  <ul class="legend" aria-label="Leyenda">
+    <li><i class="proc"></i>Tiempo de proceso</li>
+    <li><i class="wait"></i>Tiempo de espera (rayas)</li>
+  </ul>
+  <ol class="flow" id="flow" aria-labelledby="h-flujo"></ol>
+  <p class="small muted">La etapa con mayor tiempo total se marca como "Cuello de botella".</p>
+
+  <h2 id="h-docs">Documentos</h2>
+  <div class="card">
+    <div class="table-wrap" role="region" aria-labelledby="h-docs" tabindex="0">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">ID</th><th scope="col">Título</th><th scope="col" class="num">Páginas</th>
+            <th scope="col">Tipo</th><th scope="col">Etapa</th>
+            <th scope="col" class="num">Tiempo total</th><th scope="col" class="num">Tiempo ahorrado</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<script>
+const LABELS = {received:"1. Recibido", validated:"2. Validado", id_assigned:"3. ID asignado",
+  email_sent:"4. Correo enviado", triage:"5. Revisión inicial", ready_for_review:"6. Listo para revisión"};
+const NF = new Intl.NumberFormat("es-MX", {maximumFractionDigits: 1});
+function fmt(s) {
+  if (s < 0) return "-" + fmt(-s);
+  if (s < 1) return NF.format(s * 1000) + " ms";
+  if (s < 59.995) return NF.format(Math.round(s * 100) / 100) + " s";
+  if (s < 3600) return NF.format(s / 60) + " min";
+  const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
+  return h + " h " + m + " min";
+}
+const esc = t => String(t).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const REASONS = {unreadable_pdf: "PDF ilegible", not_pdf: "No es PDF"};
+const $ = id => document.getElementById(id);
+
+let built = false, timer = null, last = null;
+
+function buildBaselineRows(d) {
+  $("baseline-rows").innerHTML = d.stages.map(s => `<tr>
+    <th scope="row"><label for="b-${s.stage}" style="margin:0;font-weight:600">${LABELS[s.stage]}</label></th>
+    <td class="num"><input type="number" id="b-${s.stage}" name="${s.stage}" min="0" max="600" step="0.5"
+        inputmode="decimal" value="${d.baselines[s.stage]}"></td>
+    <td class="num" id="auto-${s.stage}"></td>
+    <td class="num" id="save-${s.stage}"></td></tr>`).join("");
+  document.querySelectorAll("#baseline-rows input").forEach(i => i.addEventListener("input", updateBaselineTotals));
+  built = true;
+}
+
+function updateBaselineTotals() {
+  if (!last) return;
+  let manual = 0, auto = 0;
+  last.stages.forEach(s => {
+    const v = parseFloat($("b-" + s.stage).value);
+    const m = isNaN(v) ? 0 : v * 60;
+    manual += m; auto += s.avg_process_s;
+    $("auto-" + s.stage).textContent = fmt(s.avg_process_s);
+    $("save-" + s.stage).textContent = fmt(m - s.avg_process_s);
+  });
+  $("manual-total").textContent = fmt(manual);
+  $("auto-total").textContent = fmt(auto);
+  $("save-total").textContent = fmt(manual - auto);
+}
+
+async function refresh() {
+  let d;
+  try {
+    const r = await fetch("/api/vsm");
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    d = await r.json();
+  } catch (e) {
+    $("status").textContent = "Conexión perdida con el servidor, reintentando... (¿sigue corriendo app.py?)";
+    return;
+  }
+  if (!d.baselines || !d.totals || d.totals.saved_s === undefined || d.totals.pass_rate_pct === undefined || d.totals.passed === undefined) {
+    $("status").textContent = "Esta página y app.py son de versiones distintas. Reemplaza app.py por el de la versión nueva y reinicia el programa.";
+    return;
+  }
+  try {
+    last = d; const t = d.totals;
+    if (!built) buildBaselineRows(d);
+    $("example-note").hidden = d.baselines_customized;
+    updateBaselineTotals();
+
+    $("kpis").innerHTML = [
+      [t.documents, "Documentos recibidos"],
+      [t.pass_rate_pct.toFixed(0) + "%", "Tasa de aprobación (sin rechazo ni aviso)"],
+      [t.passed, "Aprobados automáticamente"],
+      [t.rejected, "Rechazados (PDF ilegible o no PDF)"],
+      [fmt(t.avg_lead_time_s), "Tiempo total de entrega promedio"],
+      [fmt(t.process_time_s), "Tiempo de valor agregado (proceso)"],
+      [fmt(t.wait_time_s), "Tiempo de espera"],
+      [t.flow_efficiency_pct.toFixed(0) + "%", "Eficiencia del flujo"],
+      [t.flagged, "Marcados como largos (> " + d.page_limit + " págs.)"],
+    ].map(([v, l]) => `<div class="kpi"><dt>${l}</dt><dd>${v}</dd></div>`).join("");
+
+    $("saved-big").textContent = fmt(t.saved_s);
+    $("saved-text").textContent = t.completed
+      ? "ahorrados en " + t.completed + (t.completed === 1 ? " documento" : " documentos") +
+        " (" + fmt(t.manual_per_doc_s) + " a mano frente a " + fmt(t.avg_lead_time_s) + " automatizado, por documento)"
+      : "Aún no hay documentos procesados.";
+
+    const totals = d.stages.map(s => s.avg_process_s + s.avg_wait_s);
+    const maxIdx = totals.indexOf(Math.max(...totals));
+    const maxT = Math.max(...totals) || 1;
+    $("flow").innerHTML = d.stages.map((s, i) => {
+      const pw = s.avg_process_s / maxT * 100, ww = s.avg_wait_s / maxT * 100;
+      const bn = t.documents > 0 && i === maxIdx && totals[i] > 0;
+      return `<li class="step${bn ? " bottleneck" : ""}">
+        ${bn ? '<span class="badge bad">Cuello de botella</span>' : ""}
+        <h3>${LABELS[s.stage]}</h3>
+        <div class="bar" aria-hidden="true"><i class="proc" style="width:${pw}%"></i><i class="wait" style="width:${ww}%"></i></div>
+        <div class="small">Proceso: <strong>${fmt(s.avg_process_s)}</strong></div>
+        <div class="small">Espera: <strong>${fmt(s.avg_wait_s)}</strong></div>
+        <div class="small muted">Ejecuciones: ${s.count}</div></li>`;
+    }).join("");
+
+    $("rows").innerHTML = d.docs.length ? d.docs.slice(0, 50).map(x => `<tr>
+      <th scope="row">${esc(x.doc_id)}</th><td>${esc(x.title)}</td><td class="num">${x.pages}</td>
+      <td>${x.status === "rejected" ? '<span class="badge bad">Rechazado</span>'
+            : '<span class="badge ' + (x.flagged_long ? "long" : "ok") + '">' + (x.flagged_long ? "Documento largo" : "Normal") + '</span>'}</td>
+      <td>${x.status === "rejected" ? '<span class="badge bad">' + esc(REASONS[x.reject_reason] || x.reject_reason) + '</span>'
+            : '<span class="badge ' + (x.complete ? "ok" : "prog") + '">' + (x.complete ? "Listo" : esc(LABELS[x.stage_reached] || x.stage_reached)) + '</span>'}</td>
+      <td class="num">${fmt(x.lead_time_s)}</td>
+      <td class="num">${x.complete ? fmt(x.saved_s) : "&mdash;"}</td></tr>`).join("")
+      : '<tr><td colspan="7" class="muted">Aún no hay envíos. Sube un PDF en la página de envío.</td></tr>';
+
+    $("status").textContent = "Actualizado a las " + new Date().toLocaleTimeString("es-MX") +
+      (timer ? " (cada 3 s)" : " (en pausa)");
+  } catch (e) {
+    $("status").textContent = "Error al mostrar los datos: " + e.message;
+  }
+}
+
+$("toggle").addEventListener("click", () => {
+  if (timer) {
+    clearInterval(timer); timer = null;
+    $("toggle").textContent = "Reanudar actualización automática";
+    $("status").textContent = $("status").textContent.replace("(cada 3 s)", "(en pausa)");
+  }
+  else { timer = setInterval(refresh, 3000); $("toggle").textContent = "Pausar actualización automática"; refresh(); }
+});
+
+$("baseline-form").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  const st = $("save-status"), body = {};
+  for (const i of document.querySelectorAll("#baseline-rows input")) {
+    const v = parseFloat(i.value);
+    if (isNaN(v) || v < 0 || v > 600) {
+      st.className = "small alert error";
+      st.textContent = "Escribe un número entre 0 y 600 en: " + LABELS[i.name] + ".";
+      i.focus(); return;
+    }
+    body[i.name] = v;
+  }
+  $("save").disabled = true;
+  try {
+    const r = await fetch("/api/baselines", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+    if (!r.ok) throw new Error();
+    st.className = "small alert ok"; st.textContent = "Guardado. El ahorro se recalculó.";
+    await refresh();
+  } catch (e) {
+    st.className = "small alert error"; st.textContent = "No se pudo guardar. Intenta de nuevo.";
+  }
+  $("save").disabled = false;
+});
+
+refresh(); timer = setInterval(refresh, 3000);
+</script>
+</body>
+</html>

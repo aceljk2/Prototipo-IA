@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Envío recibido - PeerFlow AI</title>
+<link rel="icon" href="data:,">
+<script src="{{ url_for('static', filename='theme.js') }}"></script>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<a class="skip-link" href="#contenido">Saltar al contenido</a>
+<header class="site-header">
+  <a class="brand" href="/">PeerFlow AI</a>
+  <nav class="site-nav" aria-label="Principal">
+    <a href="/">Enviar manuscrito</a>
+    <a href="/tracker">Monitor VSM en vivo</a>
+    <button type="button" class="theme-btn" id="theme-toggle" aria-pressed="false"><span class="dot" aria-hidden="true"></span>Modo oscuro</button>
+  </nav>
+</header>
+
+<main id="contenido" class="narrow">
+  <div class="card center">
+    <h1 id="titulo" tabindex="-1">Envío recibido</h1>
+    {% if email_status.startswith('sent') %}
+      <p>Enviamos una confirmación a <strong>{{ doc.author_email }}</strong>.</p>
+    {% else %}
+      <p>Tu manuscrito quedó registrado.</p>
+    {% endif %}
+    {% if email_status.startswith('simulado') %}
+      <div class="alert warn" role="note">No se envió ningún correo ({{ email_status[10:] }}). Es una prueba: el proceso se ejecutó completo y quedó registrado en el monitor.</div>
+    {% elif email_status.startswith('demo') %}
+      <div class="alert warn" role="note">Modo demostración: el correo de confirmación NO se envió. Se imprimió en la consola porque no hay un webhook de Zapier (WEBHOOK_URL) ni SMTP configurado.</div>
+    {% elif 'FAILED' in email_status %}
+      <div class="alert error" role="alert">No se pudo enviar el correo de confirmación. Revisa la consola y que el WEBHOOK_URL configurado sea correcto.</div>
+    {% endif %}
+    <p class="muted" style="margin-bottom:0">Tu ID de documento es:</p>
+    <div class="doc-id">{{ doc.doc_id }}</div>
+    <p class="muted">{{ doc.title }} &middot; {{ doc.pages }} páginas</p>
+    {% if doc.flagged_long %}
+      <div class="alert warn" role="note">Este manuscrito excede las {{ page_limit }} páginas, por lo que se notificó al editor para su revisión inicial.</div>
+    {% endif %}
+    <div class="actions">
+      <a href="/">Enviar otro manuscrito</a>
+      <a href="/tracker">Ver el monitor en vivo</a>
+    </div>
+  </div>
+</main>
+<script>document.getElementById("titulo").focus();</script>
+</body>
+</html>

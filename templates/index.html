@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recepción de manuscritos - PeerFlow AI</title>
+<meta name="description" content="PeerFlow AI, tu agente de revisión por pares: registra cada manuscrito, lo identifica y avisa al editor cuando requiere atención.">
+<link rel="icon" href="data:,">
+<script src="{{ url_for('static', filename='theme.js') }}"></script>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<a class="skip-link" href="#contenido">Saltar al contenido</a>
+<header class="site-header">
+  <a class="brand" href="/">PeerFlow AI</a>
+  <nav class="site-nav" aria-label="Principal">
+    <a href="/" aria-current="page">Enviar manuscrito</a>
+    <a href="/tracker">Monitor VSM en vivo</a>
+    <button type="button" class="theme-btn" id="theme-toggle" aria-pressed="false"><span class="dot" aria-hidden="true"></span>Modo oscuro</button>
+  </nav>
+</header>
+
+<main id="contenido">
+  <div class="hero">
+    <section class="hero-copy" aria-labelledby="titulo">
+      <p class="eyebrow">Tu agente de revisión por pares </p>
+      <h1 id="titulo" class="display">Del envío al comité editorial, sin trámites manuales</h1>
+      <p class="lead"><b>PeerFlow AI</b> automatiza la recepción y la revisión inicial de manuscritos, para que editores y revisores dediquen su tiempo a lo que importa: la evaluación académica.</p>
+
+      <ul class="features">
+        <li>
+          <span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7l8 6 8-6"/><rect x="3" y="5" width="18" height="14" rx="2"/></svg></span>
+          <div><strong>Registro inmediato</strong>
+          <p>Cada manuscrito recibe un ID único y, si lo eliges, una confirmación por correo al momento del envío.</p></div>
+        </li>
+        <li>
+          <span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 14l2 2 4-4"/></svg></span>
+          <div><strong>Revisión inicial automática</strong>
+          <p>Verifica que el PDF sea legible, cuenta las páginas y avisa al editor cuando el documento excede las {{ page_limit }} páginas.</p></div>
+        </li>
+        <li>
+          <span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></span>
+          <div><strong>Resultados medibles</strong>
+          <p>El monitor muestra cada etapa del proceso, la tasa de aprobación y el tiempo ahorrado frente al trabajo manual.</p>
+          <a class="text-link" href="/tracker">Ver el monitor en vivo <span aria-hidden="true">&rarr;</span></a></div>
+        </li>
+      </ul>
+    </section>
+
+    <section class="card hero-form" aria-labelledby="h-form">
+      <h2 id="h-form" style="margin-top:0">Envía tu manuscrito</h2>
+      {% if error %}<div class="alert error" id="error" role="alert">{{ error }}</div>{% endif %}
+      <form method="post" action="/submit" enctype="multipart/form-data" id="form">
+        <p class="small muted" style="margin-top:0">Los campos marcados como obligatorios deben llenarse.</p>
+
+        <div class="field" style="margin-top:0">
+          <label for="title">Título del manuscrito <span class="req">(opcional)</span></label>
+          <input id="title" name="title" type="text" autocomplete="off" aria-describedby="h-title">
+          <span class="hint" id="h-title">Por ejemplo: Atención en redes de grafos dispersos</span>
+        </div>
+
+        <div class="field">
+          <label for="author_name">Tu nombre <span class="req">(obligatorio)</span></label>
+          <input id="author_name" name="author_name" type="text" autocomplete="name" required>
+        </div>
+
+        <div class="field">
+          <label for="author_email">Tu correo electrónico <span class="req">{% if real_emails_enabled %}(obligatorio si marcas el envío){% else %}(opcional){% endif %}</span></label>
+          <input id="author_email" name="author_email" type="email" autocomplete="email" aria-describedby="h-email">
+          <span class="hint" id="h-email">Aquí enviaremos tu ID de documento, si activas el envío de correos.</span>
+        </div>
+
+        <div class="field">
+          <label for="document">Manuscrito en PDF <span class="req">(obligatorio, máx. 25 MB)</span></label>
+          <input id="document" name="document" type="file" accept="application/pdf" required aria-describedby="h-doc">
+          <span class="hint" id="h-doc">Los documentos de más de {{ page_limit }} páginas se marcan para revisión editorial inicial.</span>
+        </div>
+
+        {% if real_emails_enabled %}
+        <div class="field">
+          <label class="check-label" for="send_email"><input type="checkbox" id="send_email" name="send_email" aria-describedby="h-send"><span>Enviar los correos por Zapier</span></label>
+          <span class="hint" id="h-send">Opcional. Envía la confirmación a tu correo y, si el documento es largo, un aviso al editor. Déjala sin marcar para probar sin enviar correos (límite diario: {{ email_daily_limit }}).</span>
+        </div>
+        {% endif %}
+
+        <button class="btn block" type="submit" id="send">Enviar manuscrito</button>
+        <p class="sr-only" id="busy" role="status"></p>
+      </form>
+    </section>
+  </div>
+</main>
+
+<script>
+  var form = document.getElementById("form"), send = document.getElementById("send");
+  form.addEventListener("submit", function () {
+    send.disabled = true;
+    send.textContent = "Procesando...";
+    document.getElementById("busy").textContent = "Procesando tu manuscrito, espera un momento.";
+  });
+  var chk = document.getElementById("send_email"), mail = document.getElementById("author_email");
+  if (chk) chk.addEventListener("change", function () { mail.required = chk.checked; });
+  var err = document.getElementById("error");
+  if (err) { err.setAttribute("tabindex", "-1"); err.focus(); }
+</script>
+</body>
+</html>
